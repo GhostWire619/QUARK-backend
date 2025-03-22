@@ -1,0 +1,61 @@
+# Python-specific ignores
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Environment variables
+.env
+
+# Dependency directories
+*.egg-info/
+dist/
+build/
+eggs/
+*.egg
+
+# Logs
+*.log
+logs/
+
+# FAISS index files (from your TextIndexer)
+indexes/
+
+# Uploaded JSON files (if stored temporarily)
+*.json
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Testing and coverage
+htmlcov/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# Jupyter Notebook checkpoints (if you use them)
+.ipynb_checkpoints/
+
+# Miscellaneous
+*.swp
+*.bak
+*.tmp
