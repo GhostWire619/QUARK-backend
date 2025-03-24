@@ -4,8 +4,6 @@ import httpx
 import logging
 
 from app.settings import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, FRONTEND_URL
-from app.utils.webhook_utils import sync_all_webhooks
-from app.schemas.models import (WebhookPayload, WebhookEvent, RegisteredWebhook,AuthCallbackInput,UserProfileInput,UserReposInput,RepoCommitsInput,SetupWebhookInput,WebhookInput)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -51,9 +49,6 @@ async def callback(code: str, background_tasks: BackgroundTasks):
             if not access_token:
                 logger.error("No access token in GitHub response")
                 return RedirectResponse(url=f"{FRONTEND_URL}/login?error=no_token")
-            
-            # Schedule webhook synchronization in background
-            background_tasks.add_task(sync_all_webhooks, access_token)
             
             # Redirect to frontend with token
             return RedirectResponse(url=f"{FRONTEND_URL}/login?token={access_token}")
