@@ -1,6 +1,5 @@
-from pydantic import BaseModel, Field, constr, conint
+from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional, List
-from datetime import datetime
 
 class WebhookPayload(BaseModel):
     repository: Dict[str, Any] = Field(..., description="Repository information")
@@ -25,28 +24,19 @@ class RegisteredWebhook(BaseModel):
 
 # Auth route input models
 class AuthCallbackInput(BaseModel):
-    code: str = Field(..., min_length=20, description="GitHub OAuth code")
-
-# User route input models
-class UserProfileInput(BaseModel):
-    token: Optional[str] = Field(None, min_length=40, description="GitHub access token")
-
-class UserReposInput(BaseModel):
-    token: Optional[str] = Field(None, min_length=40, description="GitHub access token")
+    code: str = Field(..., min_length=10, description="GitHub OAuth code")
 
 # Webhook route input models
 class RepoCommitsInput(BaseModel):
-    owner: constr(min_length=1) = Field(..., description="Repository owner")
-    repo: constr(min_length=1) = Field(..., description="Repository name")
-    page: conint(gt=0) = Field(1, description="Page number for pagination")
-    per_page: conint(gt=0, le=100) = Field(10, description="Items per page")
-    token: Optional[str] = Field(None, min_length=40, description="GitHub access token")
-
+    owner:str = Field(..., min_length=1,description="Repository owner")
+    repo: str = Field(...,min_length=1, description="Repository name")
+    page: str= Field(1, gt=0,description="Page number for pagination")
+    per_page: str= Field(10,gt=0,le=100, description="Items per page")
 class SetupWebhookInput(BaseModel):
-    owner: constr(min_length=1) = Field(..., description="Repository owner")
-    repo: constr(min_length=1) = Field(..., description="Repository name")
-    token: Optional[str] = Field(None, min_length=40, description="GitHub access token")
-
+    owner: str = Field(..., description="Repository owner")
+    repo: str = Field(..., description="Repository name")
 class WebhookInput(BaseModel):
     event_type: Optional[str] = Field(None, description="GitHub event type")
     payload: Dict[str, Any] = Field(..., description="Webhook payload")
+
+

@@ -1,0 +1,13 @@
+logging
+bcrypt
+httpx
+importlib_resources
+pydantic
+PyJWT
+python-dotenv
+SQLAlchemy
+uvicorn
+uuid
+werkzeug
+fastapi
+

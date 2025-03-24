@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Request, HTTPException, Depends, BackgroundTasks, status
-from fastapi.responses import JSONResponse
-from typing import Dict, Any, List
+from fastapi import APIRouter, HTTPException, Depends, status
 import logging
-from datetime import datetime
 import httpx
 
-
+from app.schemas.user_models import (UserCreate)
+from app.database.user_crud import create_user
+from app.database.database import get_db
+from sqlalchemy.orm import Session
+from app.settings import PASSWORD
 from fastapi.security import OAuth2PasswordBearer
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
@@ -14,7 +16,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 
 
 @router.get("/profile")
-async def get_user_profile(token: str = Depends(oauth2_scheme)):
+async def get_user_profile(token: str = Depends(oauth2_scheme),db_session:Session=Depends(get_db)):
     """
     Get GitHub user profile
     """
@@ -32,6 +34,14 @@ async def get_user_profile(token: str = Depends(oauth2_scheme)):
             )
             
             if response.status_code == 200:
+                response = response.json()
+                github_user = response.json()
+                # Extract required fields from GitHub response
+                username = github_user.get("login")
+                email = github_user.get("email")
+                user_data = UserCreate(username=username, email=email, password=PASSWORD)
+                new_user = create_user(db_session, user_data)
+                logger.info(f" a new user {new_user} has been created")
                 return response.json()
             else:
                 logger.error(f"GitHub API error: {response.text}")
