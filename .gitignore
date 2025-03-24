@@ -59,3 +59,4 @@ coverage.xml
 *.swp
 *.bak
 *.tmp
+*.db
