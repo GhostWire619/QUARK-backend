@@ -34,15 +34,16 @@ async def get_user_profile(token: str = Depends(oauth2_scheme),db_session:Sessio
             )
             
             if response.status_code == 200:
-                response = response.json()
                 github_user = response.json()
-                # Extract required fields from GitHub response
                 username = github_user.get("login")
                 email = github_user.get("email")
                 user_data = UserCreate(username=username, email=email, password=PASSWORD)
                 new_user = create_user(db_session, user_data)
-                logger.info(f" a new user {new_user} has been created")
-                return response.json()
+                if (new_user == None):
+                    logger.info(f" user {username} already exist")
+                else:
+                    logger.info(f" a new user {new_user.username} has been created")
+                return github_user
             else:
                 logger.error(f"GitHub API error: {response.text}")
                 raise HTTPException(status_code=response.status_code, detail=response.text)
