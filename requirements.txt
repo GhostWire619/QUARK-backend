@@ -10,4 +10,4 @@ uvicorn
 uuid
 werkzeug
 fastapi
-
+pydantic[email]
