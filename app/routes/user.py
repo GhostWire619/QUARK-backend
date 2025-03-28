@@ -79,7 +79,18 @@ async def get_user_profile(
             if response.status_code == 200:
                 github_user = response.json()
                 username = github_user.get("login")
+                # Get email from GitHub API or provide a fallback
                 email = github_user.get("email")
+                if not email:
+                    # GitHub doesn't always return the email for privacy reasons, so we create a placeholder
+                    email = f"{username}@github.placeholder.com"
+                    # Log this for debugging
+                    logger.info(f"Using placeholder email for user {username}: {email}")
+                
+                # Add the email to the response if not present
+                if "email" not in github_user or not github_user["email"]:
+                    github_user["email"] = email
+                
                 user_data = UserCreate(username=username, email=email, password=PASSWORD)
                 new_user = create_user(db_session, user_data)
                 if new_user is None:

@@ -9,7 +9,9 @@ from app.settings import FRONTEND_URL
 from app.routes.auth import router as auth_router
 from app.routes.webhooks import router as webhooks_router
 from app.routes.user import router as user_router
-from  app.database.database import init_db
+from app.routes.logs import router as logs_router
+from app.database.database import init_db
+from app.utils.middleware import RequestLoggingMiddleware
 
 # Configure logging
 logging.basicConfig(
@@ -66,9 +68,16 @@ app = FastAPI(
         {
             "name": "user",
             "description": "User profile and repository management"
+        },
+        {
+            "name": "logs",
+            "description": "API request logging and monitoring"
         }
     ]
 )
+
+# Add request logging middleware
+app.add_middleware(RequestLoggingMiddleware)
 
 # Add CORS middleware
 app.add_middleware(
@@ -86,7 +95,8 @@ init_db()
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(user_router, prefix="/user", tags=["user"])
 app.include_router(webhooks_router, prefix="/api", tags=["webhooks"])
+app.include_router(logs_router, prefix="/logs", tags=["logs"])
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, ssl_certfile=None, ssl_keyfile=None)
