@@ -23,9 +23,51 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 
 # Create FastAPI app
 app = FastAPI(
-    title="GitHub Webhook App",
-    description="An application for handling GitHub webhooks and OAuth",
-    version="1.0.0"
+    title="GitHub Webhook Manager",
+    description="""
+    A comprehensive GitHub webhook management system that allows you to:
+    
+    ## Key Features
+    * 🔐 Authenticate with GitHub using OAuth
+    * 🔄 Automatically set up and manage webhooks for repositories
+    * 📊 Track and store webhook events
+    * 👤 Manage user profiles and repository access
+    
+    ## Authentication
+    The API uses GitHub OAuth for authentication. All authenticated endpoints require a valid GitHub access token.
+    
+    ## Webhook Management
+    - Automatically create and configure webhooks for repositories
+    - Store and track webhook events
+    - View commit history and repository information
+    
+    ## User Management
+    - View and manage user profiles
+    - Access repository listings
+    - Track user-specific webhook configurations
+    
+    ## Getting Started
+    1. Start by authenticating through the `/auth/login` endpoint
+    2. Use the received token for all authenticated requests
+    3. Set up webhooks for your repositories using `/api/repos/{owner}/{repo}/setup-webhook`
+    """,
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_tags=[
+        {
+            "name": "auth",
+            "description": "Authentication operations with GitHub OAuth"
+        },
+        {
+            "name": "webhooks",
+            "description": "Webhook management and event handling"
+        },
+        {
+            "name": "user",
+            "description": "User profile and repository management"
+        }
+    ]
 )
 
 # Add CORS middleware
@@ -40,10 +82,10 @@ app.add_middleware(
 #initialize db
 init_db()
 
-# Include routers
-app.include_router(auth_router, prefix="/auth")
-app.include_router(user_router, prefix="/user")
-app.include_router(webhooks_router, prefix="/api")
+# Include routers with tags
+app.include_router(auth_router, prefix="/auth", tags=["auth"])
+app.include_router(user_router, prefix="/user", tags=["user"])
+app.include_router(webhooks_router, prefix="/api", tags=["webhooks"])
 
 
 if __name__ == "__main__":

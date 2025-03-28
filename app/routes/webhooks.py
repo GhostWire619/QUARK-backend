@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 import logging
 from datetime import datetime
 import httpx
+from typing import List, Dict, Any
 
 from app.database.database import get_db
 from app.database.webhook_crud import (
@@ -19,13 +20,50 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
     
-@router.get("/repos/{owner}/{repo}/commits")
+@router.get(
+    "/repos/{owner}/{repo}/commits",
+    summary="Get Repository Commits",
+    response_model=List[Dict[str, Any]],
+    responses={
+        200: {
+            "description": "Successfully retrieved repository commits with detailed information",
+            "content": {
+                "application/json": {
+                    "example": [{
+                        "sha": "commit_sha",
+                        "commit": {
+                            "message": "commit message",
+                            "author": {"name": "author name", "date": "commit date"}
+                        },
+                        "stats": {"additions": 0, "deletions": 0, "total": 0}
+                    }]
+                }
+            }
+        },
+        401: {"description": "Not authenticated"},
+        404: {"description": "Repository not found"}
+    }
+)
 async def get_repo_commits(
-    owner:str,
-    repo:str,
-    token:str = Depends(oauth2_scheme)):
+    owner: str,
+    repo: str,
+    token: str = Depends(oauth2_scheme)
+):
     """
-    Get repository commits
+    Retrieves detailed commit information for a specific repository.
+    
+    This endpoint:
+    1. Fetches the last 100 commits from the repository
+    2. For each commit, retrieves detailed information including stats
+    3. Returns comprehensive commit data including changes and author details
+    
+    Args:
+        owner (str): Repository owner username
+        repo (str): Repository name
+        token (str): GitHub access token
+    
+    Returns:
+        List[Dict]: List of detailed commit information
     """
     if not token:
         raise HTTPException(
@@ -62,16 +100,56 @@ async def get_repo_commits(
         logger.error(f"Error fetching repo commits: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/repos/{owner}/{repo}/setup-webhook")
+@router.post(
+    "/repos/{owner}/{repo}/setup-webhook",
+    summary="Set Up Repository Webhook",
+    response_model=Dict[str, str],
+    responses={
+        200: {
+            "description": "Webhook setup successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "message": "Webhook created successfully",
+                        "hook_id": "12345"
+                    }
+                }
+            }
+        },
+        401: {"description": "Not authenticated"},
+        404: {"description": "Repository not found"},
+        500: {"description": "Server error during webhook setup"}
+    }
+)
 async def setup_webhook(
     background_tasks: BackgroundTasks,
-    owner:str,
-    repo:str,
-    token:str = Depends(oauth2_scheme),
+    owner: str,
+    repo: str,
+    token: str = Depends(oauth2_scheme),
     db_session: Session = Depends(get_db)
 ):
     """
-    Automatically set up a webhook for a repository
+    Sets up a webhook for a GitHub repository.
+    
+    This endpoint:
+    1. Checks if a webhook already exists for the repository
+    2. If exists, updates the database record
+    3. If not, creates a new webhook and stores it in the database
+    
+    The webhook will be configured to send the following events:
+    - Push events
+    - Pull request events
+    - Issue events
+    
+    Args:
+        owner (str): Repository owner username
+        repo (str): Repository name
+        token (str): GitHub access token
+        db_session (Session): Database session
+    
+    Returns:
+        Dict[str, str]: Status of webhook setup operation
     """
     if not token:
         raise HTTPException(
@@ -83,16 +161,13 @@ async def setup_webhook(
     logger.info(f"Setting up webhook for {repo_full_name} to {WEBHOOK_URL}")
     
     try:
-        # Use a single client for all requests
         async with httpx.AsyncClient() as client:
-            # Check if webhook already exists
             existing_hook = await check_existing_webhook(client, owner,repo,token)
             if existing_hook:
                 hook_id = str(existing_hook['id'])
                 hook_url = existing_hook['config'].get('url', '')
                 events = existing_hook.get('events', [])
                 
-                # Update database entry
                 add_or_update_registered_webhook(
                     db_session,
                     repository=repo_full_name,
@@ -108,13 +183,11 @@ async def setup_webhook(
                     "hook_id": hook_id
                 }
             
-            # Create new webhook
             hook_data = await create_webhook(client, owner,repo,token)
             if hook_data:
                 hook_id = str(hook_data['id'])
                 events = hook_data.get('events', [])
                 
-                # Add to database
                 add_or_update_registered_webhook(
                     db_session,
                     repository=repo_full_name,
@@ -133,12 +206,51 @@ async def setup_webhook(
         logger.error(f"Error setting up webhook: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/webhook")
+@router.post(
+    "/webhook",
+    summary="Receive GitHub Webhook Events",
+    response_model=Dict[str, str],
+    responses={
+        200: {
+            "description": "Successfully processed webhook event",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "event_id": "2024-03-28T12:00:00-push"
+                    }
+                }
+            }
+        },
+        400: {"description": "Missing required headers"},
+        500: {"description": "Error processing webhook event"}
+    }
+)
 async def webhook(
     request: Request,
-    db_session: Session = Depends(get_db)):
+    db_session: Session = Depends(get_db)
+):
     """
-    GitHub webhook endpoint for receiving repository events
+    Receives and processes GitHub webhook events.
+    
+    This endpoint:
+    1. Validates the webhook event type
+    2. Processes the payload
+    3. Stores the event in the database
+    
+    Supported event types:
+    - push
+    - pull_request
+    - issues
+    - issue_comment
+    - and more...
+    
+    Args:
+        request (Request): The incoming webhook request
+        db_session (Session): Database session
+    
+    Returns:
+        Dict[str, str]: Status of webhook processing
     """
     try:
         event_type = request.headers.get("X-GitHub-Event")
@@ -151,13 +263,10 @@ async def webhook(
         
         logger.info(f"Received {event_type} event from {repo_name}")
         
-        # Create a webhook event record
         event_id = f"{datetime.now().isoformat()}-{event_type}"
         timestamp = datetime.now().isoformat()
         
-        # Save to database
-        add_webhook_event(db_session,event_id, event_type, payload,)
-
+        add_webhook_event(db_session, event_id, event_type, payload)
             
         return {"status": "success", "event_id": event_id}
         
