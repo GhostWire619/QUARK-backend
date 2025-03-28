@@ -5,8 +5,7 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.concurrency import iterate_in_threadpool
 from sqlalchemy.orm import Session
-from app.database.database import get_db
-from app.database.request_log_crud import create_request_log
+from app.database.database import get_db, RequestLogDB
 
 logger = logging.getLogger(__name__)
 
@@ -107,8 +106,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             try:
                 # Get DB session from generator
                 for db in get_db():
-                    create_request_log(
-                        db=db,
+                    # Create log entry
+                    log_entry = RequestLogDB(
                         endpoint=path,
                         method=method,
                         user_id=user_id,
@@ -119,6 +118,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                         client_ip=client_ip,
                         user_agent=user_agent
                     )
+                    db.add(log_entry)
+                    db.commit()
                     break
             except Exception as e:
                 logger.error(f"Error logging request to database: {str(e)}")
@@ -138,8 +139,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             try:
                 # Get DB session from generator
                 for db in get_db():
-                    create_request_log(
-                        db=db,
+                    # Create log entry
+                    log_entry = RequestLogDB(
                         endpoint=path,
                         method=method,
                         user_id=user_id,
@@ -150,6 +151,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                         client_ip=client_ip,
                         user_agent=user_agent
                     )
+                    db.add(log_entry)
+                    db.commit()
                     break
             except Exception as log_err:
                 logger.error(f"Error logging error request to database: {str(log_err)}")
