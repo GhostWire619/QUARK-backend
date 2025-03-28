@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, create_engine
+from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, create_engine, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 import uuid
@@ -100,4 +100,21 @@ class WebhookEvent(Base):
 
     webhook_id = Column(String, ForeignKey('registered_webhooks.id', ondelete='CASCADE'), primary_key=True)
     event_name = Column(String, ForeignKey('events.name', ondelete='CASCADE'), primary_key=True)
+
+
+# API Request Logging Model
+class RequestLogDB(Base):
+    __tablename__ = 'request_logs'
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    endpoint = Column(String, nullable=False, index=True)
+    method = Column(String, nullable=False)
+    user_id = Column(String, nullable=True, index=True)
+    username = Column(String, nullable=True)
+    status_code = Column(Integer, nullable=True)
+    request_data = Column(JSON, nullable=True)
+    response_time_ms = Column(Integer, nullable=True)
+    timestamp = Column(DateTime(timezone=True), default=get_utc_now, index=True)
+    client_ip = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
 
