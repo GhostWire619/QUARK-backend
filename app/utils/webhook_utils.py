@@ -1,4 +1,4 @@
-from app.settings import WEBHOOK_URL, WEBHOOK_SECRET
+from app.settings import settings
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,9 +13,9 @@ async def create_webhook(client, owner, repo, token):
             "active": True,
             "events": ["push", "pull_request", "issues"],
             "config": {
-                "url": WEBHOOK_URL,
+                "url": settings.WEBHOOK_URL,
                 "content_type": "json",
-                "secret": WEBHOOK_SECRET,
+                "secret": settings.WEBHOOK_SECRET,
                 "insecure_ssl": "0"
             }
         }
@@ -47,7 +47,7 @@ async def check_existing_webhook(client, owner, repo, token):
         config = hook.get('config', {})
         hook_url = config.get('url', '')
         
-        if WEBHOOK_URL in hook_url:
+        if settings.WEBHOOK_URL in hook_url:
             return hook
     
     return None

@@ -59,4 +59,8 @@ coverage.xml
 *.swp
 *.bak
 *.tmp
+
+# Database
 *.db
+*.sqlite
+*.sqlite3

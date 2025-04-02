@@ -1,285 +1,247 @@
-# GitHub Webhook Manager
+# QUARK Backend
 
-A robust backend service for managing GitHub webhooks, user authentication, and repository integration.
+A FastAPI-based deployment automation service that handles GitHub webhooks and manages deployments with real-time monitoring capabilities.
 
-## Overview
+## Features
 
-GitHub Webhook Manager is a specialized FastAPI application that facilitates:
+- 🔐 GitHub OAuth authentication
+- 🪝 Automated webhook management
+- 📦 Deployment automation
+- 🔄 Zero-downtime deployments
+- 🌍 Environment variable management
+- 📊 Real-time monitoring via WebSockets:
+  - Deployment logs streaming
+  - API request/response logging
+  - System metrics monitoring
+- 🚀 Auto-deploy on push
+- 📝 Comprehensive request logging
+- 🔒 Secure environment variable handling
+- 🎯 Branch-specific deployment configurations
+- 🔍 Detailed deployment history
 
-- GitHub OAuth authentication
-- Automated webhook setup and management
-- Repository event tracking
-- User profile integration
+## Getting Started
 
-The service acts as a bridge between GitHub's API and your custom deployment platform, providing real-time repository event processing.
+### Prerequisites
 
-## Architecture
+- Python 3.9+
+- pip
+- Git
+- Docker (optional, for containerized deployments)
+- SQLite (default) or PostgreSQL (optional)
 
-```
-┌─────────────────┐      ┌────────────────┐      ┌─────────────────┐
-│                 │      │                │      │                 │
-│  GitHub API     │◄────►│  Backend API   │◄────►│  Deployment     │
-│                 │      │                │      │  Platform       │
-└─────────────────┘      └────────────────┘      └─────────────────┘
-                                 ▲
-                                 │
-                                 ▼
-                          ┌────────────────┐
-                          │                │
-                          │  Database      │
-                          │                │
-                          └────────────────┘
-```
+### Installation
 
-## API Endpoints
-
-### Authentication (`/auth`)
-
-| Endpoint | Method | Description | Platform Integration |
-|----------|--------|-------------|----------------------|
-| `/auth/login` | GET | Initiates GitHub OAuth login flow | Provides authentication required for platform operations |
-| `/auth/callback` | GET | Handles GitHub OAuth callback | Receives and processes GitHub tokens for platform access |
-
-### User Management (`/user`)
-
-| Endpoint | Method | Description | Platform Integration |
-|----------|--------|-------------|----------------------|
-| `/user/profile` | GET | Retrieves GitHub user profile | Creates user account in deployment platform |
-| `/user/repos` | GET | Lists user's GitHub repositories | Provides repository choices for platform integration |
-
-### Webhook Management (`/api`)
-
-| Endpoint | Method | Description | Platform Integration |
-|----------|--------|-------------|----------------------|
-| `/api/repos/{owner}/{repo}/commits` | GET | Retrieves repository commits | Provides commit information for deployment tracking |
-| `/api/repos/{owner}/{repo}/setup-webhook` | POST | Sets up repository webhook | Connects repository events to deployment platform |
-| `/api/webhook` | POST | Receives GitHub webhook events | Triggers deployment platform workflows |
-
-## Deployment Platform Integration
-
-The backend serves as a critical component in the deployment platform architecture:
-
-1. **Authentication Layer**: 
-   - Securely handles GitHub authentication
-   - Provides access tokens for repository operations
-   - Maintains user sessions across platform components
-
-2. **Event Processing Pipeline**:
-   - Receives webhook events from GitHub
-   - Processes and validates event payloads
-   - Forwards relevant events to deployment triggers
-
-3. **Repository Integration**:
-   - Automatically configures repository webhooks
-   - Tracks commit history for deployment references
-   - Provides repository metadata for deployment context
-
-4. **User Management**:
-   - Creates and maintains user profiles
-   - Maps GitHub identities to platform accounts
-   - Manages repository access permissions
-
-## Environment Configuration
-
-The application requires the following environment variables:
-
-```
-CLIENT_ID=<github_oauth_client_id>
-CLIENT_SECRET=<github_oauth_client_secret>
-REDIRECT_URI=<oauth_callback_url>  # Must match GitHub OAuth App settings
-FRONTEND_URL=<frontend_application_url>
-WEBHOOK_URL=<webhook_callback_url>
-DATABASE_URL=<database_connection_string>
-PASSWORD=<default_user_password>
-```
-
-### OAuth Configuration
-
-The `REDIRECT_URI` is critical for OAuth authentication and must be configured correctly:
-
-1. **Local Development**:
-   ```
-   REDIRECT_URI=http://localhost:8000/auth/callback
-   ```
-
-2. **Production**:
-   ```
-   REDIRECT_URI=https://your-domain.com/auth/callback
-   ```
-
-⚠️ **Important**: 
-- The `REDIRECT_URI` must exactly match the "Authorization callback URL" in your GitHub OAuth App settings
-- Configure this in GitHub: Settings > Developer Settings > OAuth Apps > Your App > Authorization callback URL
-- The URI must use the correct protocol (http/https) and include the `/auth/callback` path
-- Common issues:
-  - Mismatched protocols (http vs https)
-  - Missing or extra trailing slashes
-  - Incorrect port numbers
-  - Different domains
-
-### Database Configuration
-
-## API Usage Examples
-
-Here's how to interact with the API endpoints using curl commands:
-
-### Authentication
-
-**1. Initiate GitHub OAuth Login:**
+1. Clone the repository:
 ```bash
-curl -X GET http://localhost:8000/auth/login
+git clone https://github.com/yourusername/QUARK-backend.git
+cd QUARK-backend
 ```
-**Response:**
-```json
-{
-  "login_url": "https://github.com/login/oauth/authorize?client_id=your_client_id&redirect_uri=your_redirect_uri&scope=repo admin:repo_hook"
-}
-```
-**Usage:** Navigate to the provided `login_url` in a browser to begin the GitHub OAuth flow.
 
-**Note:** The `/auth/callback` endpoint is not called directly - GitHub redirects to it with a temporary code after user authorization.
-
-### User Management
-
-**1. Get User Profile:**
+2. Create and activate a virtual environment:
 ```bash
-curl -X GET http://localhost:8000/user/profile \
-  -H "Authorization: Bearer your_github_token"
-```
-**Response:**
-```json
-{
-  "login": "username",
-  "id": 12345,
-  "name": "User Name",
-  "email": "user@example.com",
-  "avatar_url": "https://avatars.githubusercontent.com/u/12345",
-  "public_repos": 10,
-  "followers": 5,
-  "following": 8
-}
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```
 
-**2. List User Repositories:**
+3. Install dependencies:
 ```bash
-curl -X GET http://localhost:8000/user/repos \
-  -H "Authorization: Bearer your_github_token"
-```
-**Response:**
-```json
-[
-  {
-    "id": 98765,
-    "name": "repo-name",
-    "full_name": "username/repo-name",
-    "private": false,
-    "html_url": "https://github.com/username/repo-name",
-    "description": "Repository description",
-    "fork": false,
-    "created_at": "2023-01-15T12:30:45Z",
-    "updated_at": "2023-03-20T18:45:30Z",
-    "pushed_at": "2023-03-18T10:20:15Z"
-  },
-  // Additional repositories...
-]
+pip install -r requirements.txt
 ```
 
-### Webhook Management
+4. Set up environment variables in `.env`:
+```env
+CLIENT_ID=your_github_oauth_client_id
+CLIENT_SECRET=your_github_oauth_client_secret
+REDIRECT_URI=http://localhost:8000/auth/callback
+FRONTEND_URL=http://localhost:5173
+WEBHOOK_URL=http://your-webhook-url
+WEBHOOK_SECRET=your-webhook-secret
+DATABASE_URL=sqlite:///./app.db
+PASSWORD=your_default_password
+```
 
-**1. Get Repository Commits:**
+5. Run the application:
 ```bash
-curl -X GET http://localhost:8000/api/repos/username/repo-name/commits \
-  -H "Authorization: Bearer your_github_token"
-```
-**Response:**
-```json
-[
-  {
-    "sha": "commit_sha_hash",
-    "commit": {
-      "author": {
-        "name": "Author Name",
-        "email": "author@example.com",
-        "date": "2023-03-15T14:25:36Z"
-      },
-      "message": "Commit message"
-    },
-    "stats": {
-      "additions": 15,
-      "deletions": 5,
-      "total": 20
-    },
-    "files": [
-      {
-        "filename": "path/to/file.py",
-        "additions": 10,
-        "deletions": 3,
-        "changes": 13
-      }
-    ]
-  },
-  // Additional commits...
-]
+python main.py
 ```
 
-**2. Set Up Repository Webhook:**
+## Docker Deployment
+
+1. Build the Docker image:
 ```bash
-curl -X POST http://localhost:8000/api/repos/username/repo-name/setup-webhook \
-  -H "Authorization: Bearer your_github_token"
-```
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Webhook created successfully",
-  "hook_id": "12345678"
-}
+docker build -t quark-backend .
 ```
 
-**3. Receive Webhook Events (For Testing Only):**
+2. Run the container:
+```bash
+docker run -d \
+  -p 8000:8000 \
+  --name quark-backend \
+  --env-file .env \
+  quark-backend
+```
 
-GitHub will send POST requests to your webhook URL. You can simulate a webhook payload with:
+## Deployment Configuration
+
+### Creating a Deployment Configuration
+
+Create deployment configurations with environment variables using the `/deploy/configs` endpoint:
 
 ```bash
-curl -X POST http://localhost:8000/api/webhook \
-  -H "Content-Type: application/json" \
-  -H "X-GitHub-Event: push" \
+curl -X 'POST' \
+  'http://localhost:8000/deploy/configs' \
+  -H 'accept: application/json' \
+  -H 'Authorization: Bearer YOUR_TOKEN' \
+  -H 'Content-Type: application/json' \
   -d '{
-    "repository": {
-      "full_name": "username/repo-name"
-    },
-    "commits": [
-      {
-        "id": "commit_sha",
-        "message": "Commit message",
-        "author": {
-          "name": "Author Name",
-          "email": "author@example.com"
-        }
-      }
-    ]
-  }'
-```
-**Response:**
-```json
-{
-  "status": "success",
-  "event_id": "2023-04-10T15:30:45.123456-push"
-}
+  "repo_id": 12345678,
+  "repo_full_name": "username/repo-name",
+  "branch": "main",
+  "auto_deploy": true,
+  "deploy_command": "./deploy.sh",
+  "environment_variables": {
+    "DATABASE_URL": "postgresql://user:pass@localhost:5432/db",
+    "API_KEY": "your-api-key",
+    "NODE_ENV": "production",
+    "PORT": "3000",
+    "DEBUG": "false"
+  }
+}'
 ```
 
-## API Authentication
+The environment variables will be:
+1. Added to the deployment process environment
+2. Written to a `.env` file in the repository root
+3. Securely stored and managed per deployment
 
-All authenticated endpoints require a GitHub access token passed as a Bearer token in the Authorization header:
+### Real-Time Monitoring
+
+#### WebSocket Endpoints
+
+1. Deployment Logs:
+```javascript
+const ws = new WebSocket(`ws://localhost:8000/deployments/${deploymentId}/logs?token=${yourToken}`);
+
+ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.type === 'log') {
+        console.log('Log:', data.data);
+    } else if (data.type === 'status') {
+        console.log('Status:', data.status);
+    }
+};
+```
+
+2. API Request Logs:
+```javascript
+const ws = new WebSocket(`ws://localhost:8000/ws/logs/${logId}`);
+
+ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    console.log('API Log:', data);
+};
+```
+
+#### REST API Endpoints
 
 ```bash
-curl -X GET http://your-api-url/endpoint \
-  -H "Authorization: Bearer your_github_token"
+# Get deployment status
+curl -X 'GET' \
+  'http://localhost:8000/deployments/{deployment_id}' \
+  -H 'Authorization: Bearer YOUR_TOKEN'
+
+# List deployments
+curl -X 'GET' \
+  'http://localhost:8000/deployments?limit=10&offset=0' \
+  -H 'Authorization: Bearer YOUR_TOKEN'
+
+# Get API request logs
+curl -X 'GET' \
+  'http://localhost:8000/logs' \
+  -H 'Authorization: Bearer YOUR_TOKEN'
 ```
 
-This token is obtained through the OAuth flow initiated by the `/auth/login` endpoint.
+## API Documentation
 
-## Development Setup
+Once the server is running, visit:
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
 
-1. Install dependencies:
-   ```
+## Project Structure
+
+```
+QUARK-backend/
+├── app/
+│   ├── database/        # Database models and CRUD operations
+│   ├── deployment/      # Deployment engine and logic
+│   ├── routes/         # API routes and handlers
+│   │   ├── auth.py    # Authentication routes
+│   │   ├── deployments.py # Deployment management
+│   │   ├── logs.py    # Logging endpoints
+│   │   ├── user.py    # User management
+│   │   └── webhooks.py # GitHub webhook handling
+│   ├── schemas/        # Pydantic models and schemas
+│   ├── utils/          # Utility functions and middleware
+│   └── websockets/     # WebSocket managers and handlers
+├── logs/              # Application logs
+├── tests/             # Test files
+├── .env              # Environment variables
+├── dockerfile        # Docker configuration
+├── main.py          # Application entry point
+└── requirements.txt  # Python dependencies
+```
+
+## Development
+
+### Running Tests
+
+```bash
+pytest
+```
+
+### Local Development
+
+1. Start the server in development mode:
+```bash
+uvicorn main:app --reload
+```
+
+2. Access the API at `http://localhost:8000`
+
+### Environment Variables
+
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| CLIENT_ID | GitHub OAuth client ID | Yes | - |
+| CLIENT_SECRET | GitHub OAuth client secret | Yes | - |
+| REDIRECT_URI | OAuth callback URL | Yes | - |
+| FRONTEND_URL | Frontend application URL | Yes | - |
+| WEBHOOK_URL | Webhook endpoint URL | Yes | - |
+| WEBHOOK_SECRET | GitHub webhook secret | Yes | - |
+| DATABASE_URL | Database connection string | No | sqlite:///./app.db |
+| PASSWORD | Default password | Yes | - |
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## Security
+
+- All sensitive data is stored securely using environment variables
+- Webhook signatures are verified using HMAC
+- OAuth2 with JWT for authentication
+- Rate limiting on sensitive endpoints
+- Input validation using Pydantic models
+- SQL injection prevention with SQLAlchemy
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Support
+
+For support, please open an issue in the GitHub repository or contact the maintainers.
