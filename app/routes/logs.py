@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 import logging
+from app.websockets.logs import log_manager
+from app.routes.auth import get_current_user
 
 from app.database.database import get_db, RequestLogDB
 
@@ -39,4 +41,22 @@ async def get_request_logs(
         }
         result.append(log_dict)
     
-    return result 
+    return result
+
+@router.websocket("/ws/logs/{log_id}")
+async def websocket_logs(websocket: WebSocket, log_id: str):
+    try:
+        await log_manager.connect(websocket, log_id)
+        
+        while True:
+            try:
+                # Keep the connection alive and wait for client messages
+                data = await websocket.receive_text()
+                # You can handle client messages here if needed
+            except WebSocketDisconnect:
+                log_manager.disconnect(websocket, log_id)
+                break
+            
+    except Exception as e:
+        log_manager.disconnect(websocket, log_id)
+        raise 

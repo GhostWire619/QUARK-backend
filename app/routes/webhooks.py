@@ -10,11 +10,12 @@ from app.database.webhook_crud import (
     add_webhook_event,
     add_or_update_registered_webhook
 )
-from app.settings import WEBHOOK_URL
+from app.settings import settings
 from fastapi.security import OAuth2PasswordBearer
 from app.utils.webhook_utils import (
     create_webhook,
     check_existing_webhook)
+from app.deployment.engine import process_webhook_event
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -158,7 +159,7 @@ async def setup_webhook(
         )
     
     repo_full_name = f"{owner}/{repo}"
-    logger.info(f"Setting up webhook for {repo_full_name} to {WEBHOOK_URL}")
+    logger.info(f"Setting up webhook for {repo_full_name} to {settings.WEBHOOK_URL}")
     
     try:
         async with httpx.AsyncClient() as client:
@@ -192,7 +193,7 @@ async def setup_webhook(
                     db_session,
                     repository=repo_full_name,
                     hook_id=hook_id,
-                    hook_url=WEBHOOK_URL,
+                    hook_url=settings.WEBHOOK_URL,
                     events=events
                 )
                 
@@ -207,23 +208,114 @@ async def setup_webhook(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post(
-    "/webhook",
-    summary="Receive GitHub Webhook Events",
-    response_model=Dict[str, str],
+    "/github",
+    summary="Process GitHub webhook events",
+    description="""
+    Handles webhook events from GitHub repositories.
+    
+    This endpoint processes push events to trigger deployments if applicable.
+    Repository must have a deployment configuration with auto-deploy enabled for the branch that received a push.
+    
+    Example webhook payload from GitHub (push event):
+    ```json
+    {
+      "ref": "refs/heads/main",
+      "repository": {
+        "id": 123456789,
+        "full_name": "username/docker-app",
+        "name": "docker-app",
+        "owner": {
+          "login": "username",
+          "id": 12345
+        }
+      },
+      "pusher": {
+        "name": "username",
+        "email": "user@example.com"
+      },
+      "head_commit": {
+        "id": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9",
+        "message": "Update Dockerfile and deployment script",
+        "timestamp": "2023-03-28T15:00:00Z",
+        "author": {
+          "name": "Username",
+          "email": "user@example.com"
+        }
+      }
+    }
+    ```
+    
+    Response example for a successful webhook processing:
+    ```json
+    {
+      "status": "success",
+      "message": "Webhook event processed",
+      "action": "Deployment triggered for docker-app/main",
+      "deployment_id": "7a8b9c0d-1e2f-3g4h-5i6j-7k8l9m0n1o2p"
+    }
+    ```
+    
+    Or when no deployment is triggered:
+    ```json
+    {
+      "status": "success",
+      "message": "Webhook event processed",
+      "action": "No deployment triggered: Auto-deploy not enabled for this branch"
+    }
+    ```
+    
+    Note: This endpoint must be added as a webhook in your GitHub repository settings with the content type set to 'application/json'.
+    """,
+    response_model=Dict[str, Any],
     responses={
         200: {
-            "description": "Successfully processed webhook event",
+            "description": "Webhook processed successfully",
             "content": {
                 "application/json": {
-                    "example": {
-                        "status": "success",
-                        "event_id": "2024-03-28T12:00:00-push"
+                    "examples": {
+                        "deployment_triggered": {
+                            "summary": "Deployment triggered",
+                            "value": {
+                                "status": "success",
+                                "message": "Webhook event processed",
+                                "action": "Deployment triggered for username/docker-app:main",
+                                "deployment_id": "7a8b9c0d-1e2f-3g4h-5i6j-7k8l9m0n1o2p"
+                            }
+                        },
+                        "no_deployment": {
+                            "summary": "No deployment triggered",
+                            "value": {
+                                "status": "success",
+                                "message": "Webhook event processed",
+                                "action": "No deployment triggered: Auto-deploy not enabled for this branch"
+                            }
+                        }
                     }
                 }
             }
         },
-        400: {"description": "Missing required headers"},
-        500: {"description": "Error processing webhook event"}
+        400: {
+            "description": "Invalid webhook payload",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "error",
+                        "message": "Invalid webhook payload: Missing required fields"
+                    }
+                }
+            }
+        },
+        500: {
+            "description": "Server error",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "error",
+                        "message": "Failed to process webhook"
+                    }
+                }
+            }
+        }
     }
 )
 async def webhook(
@@ -237,6 +329,7 @@ async def webhook(
     1. Validates the webhook event type
     2. Processes the payload
     3. Stores the event in the database
+    4. Triggers automatic deployments if configured
     
     Supported event types:
     - push
@@ -266,9 +359,29 @@ async def webhook(
         event_id = f"{datetime.now().isoformat()}-{event_type}"
         timestamp = datetime.now().isoformat()
         
+        # Store webhook event
         add_webhook_event(db_session, event_id, event_type, payload)
+        
+        # Check if this event should trigger a deployment
+        deployment_id = None
+        deployment_triggered = False
+        
+        if event_type == "push":
+            # Only process main branch push events for deployment
+            ref = payload.get("ref", "")
+            if ref:
+                # Process webhook for deployment
+                deployment_id = process_webhook_event(db_session, event_type, payload)
+                if deployment_id:
+                    deployment_triggered = True
+                    logger.info(f"Triggered deployment {deployment_id} for {repo_name}")
             
-        return {"status": "success", "event_id": event_id}
+        return {
+            "status": "success", 
+            "event_id": event_id,
+            "deployment_triggered": deployment_triggered,
+            "deployment_id": deployment_id
+        }
         
     except Exception as e:
         logger.error(f"Webhook processing error: {str(e)}")

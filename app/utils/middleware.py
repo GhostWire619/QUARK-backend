@@ -5,12 +5,16 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.concurrency import iterate_in_threadpool
 from sqlalchemy.orm import Session
-from app.database.database import get_db, RequestLogDB
+from app.database.database import get_db, RequestLogDB, SessionLocal
 
 logger = logging.getLogger(__name__)
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # Skip WebSocket requests
+        if request.url.path.startswith("/ws"):
+            return await call_next(request)
+
         # Record start time
         start_time = time.time()
         
@@ -102,27 +106,39 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                     if github_token:
                         logger.info(f"GitHub Token: {github_token}")
             
-            # Log request to database in a non-blocking way
+            # Get response body
+            response_body = None
+            if hasattr(response, "body"):
+                try:
+                    response_body = json.loads(response.body.decode())
+                except:
+                    response_body = None
+
+            # Create log entry
             try:
-                # Get DB session from generator
-                for db in get_db():
-                    # Create log entry
-                    log_entry = RequestLogDB(
-                        endpoint=path,
-                        method=method,
-                        user_id=user_id,
-                        username=username,
-                        status_code=status_code,
-                        request_data=request_data,
-                        response_time_ms=process_time,
-                        client_ip=client_ip,
-                        user_agent=user_agent
-                    )
-                    db.add(log_entry)
-                    db.commit()
-                    break
+                db = SessionLocal()
+                log_entry = RequestLogDB(
+                    method=method,
+                    path=path,
+                    status_code=status_code,
+                    response_time=process_time,
+                    request_body=json.dumps(request_data) if request_data else None,
+                    response_body=json.dumps(response_body) if response_body else None,
+                    headers=json.dumps(dict(request.headers)),
+                    client_ip=client_ip,
+                    user_agent=user_agent
+                )
+                db.add(log_entry)
+                db.commit()
+                db.refresh(log_entry)
+                
+                # Broadcast the log entry
+                log_entry.broadcast_log()
+                
             except Exception as e:
-                logger.error(f"Error logging request to database: {str(e)}")
+                logger.error(f"Error logging request: {str(e)}")
+            finally:
+                db.close()
             
             # Add processing time header
             response.headers["X-Process-Time"] = str(process_time)
@@ -134,28 +150,37 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             
             # Calculate process time even for errors
             process_time = int((time.time() - start_time) * 1000)
-            
+
+            # Create error response
+            error_response = {
+                "detail": str(e)
+            }
+
             # Log error request to database
             try:
-                # Get DB session from generator
-                for db in get_db():
-                    # Create log entry
-                    log_entry = RequestLogDB(
-                        endpoint=path,
-                        method=method,
-                        user_id=user_id,
-                        username=username,
-                        status_code=500,
-                        request_data=request_data,
-                        response_time_ms=process_time,
-                        client_ip=client_ip,
-                        user_agent=user_agent
-                    )
-                    db.add(log_entry)
-                    db.commit()
-                    break
+                db = SessionLocal()
+                log_entry = RequestLogDB(
+                    method=method,
+                    path=path,
+                    status_code=500,
+                    response_time=process_time,
+                    request_body=json.dumps(request_data) if request_data else None,
+                    response_body=json.dumps(error_response),
+                    headers=json.dumps(dict(request.headers)),
+                    client_ip=client_ip,
+                    user_agent=user_agent
+                )
+                db.add(log_entry)
+                db.commit()
+                db.refresh(log_entry)
+                
+                # Broadcast the log entry
+                log_entry.broadcast_log()
+                
             except Exception as log_err:
-                logger.error(f"Error logging error request to database: {str(log_err)}")
+                logger.error(f"Error logging error request: {str(log_err)}")
+            finally:
+                db.close()
             
             # Re-raise original exception
-            raise e 
+            raise 
