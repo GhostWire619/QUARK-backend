@@ -28,13 +28,13 @@ async def get_request_logs(
     for log in logs:
         log_dict = {
             "id": log.id,
-            "endpoint": log.endpoint,
+            "endpoint": log.path,
             "method": log.method,
-            "user_id": log.user_id,
-            "username": log.username,
             "status_code": log.status_code,
-            "request_data": log.request_data,
-            "response_time_ms": log.response_time_ms,
+            "response_time_ms": log.response_time,
+            "request_data": log.request_body,
+            "response_data": log.response_body,
+            "headers": log.headers,
             "timestamp": str(log.timestamp),
             "client_ip": log.client_ip,
             "user_agent": log.user_agent
