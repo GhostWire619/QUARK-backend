@@ -23,7 +23,8 @@ from app.database.deployment_crud import (
     delete_deployment_config,
     list_deployment_configs,
     get_deployment,
-    list_deployments
+    list_deployments,
+    delete_deployment
 )
 from app.deployment.engine import (
     start_deployment,
@@ -146,7 +147,11 @@ async def create_config(
         "repo_full_name": "username/docker-app",
         "branch": "main",
         "auto_deploy": true,
-        "deploy_command": "./deploy.sh"
+        "deploy_command": "./deploy.sh",
+        "environment_variables": {
+          "DATABASE_URL": "postgresql://user:pass@localhost:5432/db",
+          "API_KEY": "your-api-key"
+        }
       },
       {
         "id": "3p4o5n6m-7l8k-9j0i-1h2g-3f4e5d6c7b8a",
@@ -154,7 +159,11 @@ async def create_config(
         "repo_full_name": "username/api-service",
         "branch": "develop",
         "auto_deploy": true,
-        "deploy_command": "./api-deploy.sh"
+        "deploy_command": "./api-deploy.sh",
+        "environment_variables": {
+          "NODE_ENV": "production",
+          "PORT": "3000"
+        }
       }
     ]
     ```
@@ -173,7 +182,11 @@ async def create_config(
                             "repo_full_name": "username/docker-app",
                             "branch": "main",
                             "auto_deploy": True,
-                            "deploy_command": "./deploy.sh"
+                            "deploy_command": "./deploy.sh",
+                            "environment_variables": {
+                                "DATABASE_URL": "postgresql://user:pass@localhost:5432/db",
+                                "API_KEY": "your-api-key"
+                            }
                         }
                     ]
                 }
@@ -199,6 +212,7 @@ async def get_configs(
             "branch": config.branch,
             "auto_deploy": config.auto_deploy,
             "deploy_command": config.deploy_command,
+            "environment_variables": config.environment_variables,
             "created_at": config.created_at,
             "updated_at": config.updated_at
         }
@@ -214,7 +228,7 @@ async def get_configs(
     Retrieves the deployment configuration for a specific repository.
     
     The repository is identified by its owner and name.
-    Returns complete configuration details for the specified repository.
+    Returns complete configuration details for the specified repository, including environment variables.
     """,
     responses={
         200: {
@@ -228,6 +242,11 @@ async def get_configs(
                         "branch": "main",
                         "auto_deploy": True,
                         "deploy_command": "./deploy.sh",
+                        "environment_variables": {
+                            "DATABASE_URL": "postgresql://user:pass@localhost:5432/db",
+                            "API_KEY": "your-api-key",
+                            "NODE_ENV": "production"
+                        },
                         "created_at": "2023-03-28T12:00:00Z",
                         "updated_at": "2023-03-28T12:00:00Z"
                     }
@@ -262,6 +281,7 @@ async def get_config(
         "branch": config.branch,
         "auto_deploy": config.auto_deploy,
         "deploy_command": config.deploy_command,
+        "environment_variables": config.environment_variables,
         "created_at": config.created_at,
         "updated_at": config.updated_at
     }
@@ -281,11 +301,18 @@ async def get_config(
     {
       "branch": "develop",
       "auto_deploy": false,
-      "deploy_command": "./api-deploy.sh"
+      "deploy_command": "./api-deploy.sh",
+      "environment_variables": {
+        "DATABASE_URL": "postgresql://user:pass@localhost:5432/db",
+        "REDIS_URL": "redis://localhost:6379",
+        "API_KEY": "your-api-key",
+        "NODE_ENV": "production"
+      }
     }
     ```
     
     This will only update the specified fields, leaving other configuration values unchanged.
+    For environment variables, the entire environment_variables object is replaced with the new values.
     """,
     responses={
         200: {
@@ -295,6 +322,10 @@ async def get_config(
                     "example": {
                         "id": "8f9e26c5-3e3b-4c12-91f5-23e1d5c3b504",
                         "repo_full_name": "username/docker-app",
+                        "environment_variables": {
+                            "DATABASE_URL": "postgresql://user:pass@localhost:5432/db",
+                            "API_KEY": "your-api-key"
+                        },
                         "message": "Deployment configuration updated successfully"
                     }
                 }
@@ -321,6 +352,7 @@ async def update_config(
     return {
         "id": updated_config.id,
         "repo_full_name": updated_config.repo_full_name,
+        "environment_variables": updated_config.environment_variables,
         "message": "Deployment configuration updated successfully"
     }
 
@@ -840,6 +872,72 @@ async def cancel_deployment_request(
         raise HTTPException(status_code=500, detail="Failed to cancel deployment")
     
     return {"message": "Deployment cancelled successfully"}
+
+
+@router.delete(
+    "/deployments/{deployment_id}",
+    response_model=Dict[str, Any],
+    summary="Delete a deployment",
+    description="""
+    Permanently deletes a deployment record.
+    
+    This operation removes the deployment from the database entirely.
+    It is typically used for cleaning up old or completed deployments.
+    
+    Example response:
+    ```json
+    {
+      "message": "Deployment deleted successfully"
+    }
+    ```
+    
+    Note: If a deployment is still in progress, it will be allowed to complete but
+    the record will be deleted. Consider cancelling active deployments first.
+    """,
+    responses={
+        200: {
+            "description": "Deployment deleted successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "Deployment deleted successfully"
+                    }
+                }
+            }
+        },
+        401: {"description": "Authentication required"},
+        403: {"description": "Not authorized to delete this deployment"},
+        404: {"description": "Deployment not found"}
+    }
+)
+async def delete_deployment_endpoint(
+    deployment_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Delete a deployment record"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # First check if deployment exists
+    deployment = get_deployment(db, deployment_id)
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    
+    # Check if user owns this deployment
+    if deployment.user_id != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this deployment")
+    
+    # Delete the deployment
+    success = delete_deployment(db, deployment_id, current_user["id"])
+    if not success:
+        raise HTTPException(status_code=404, detail="Deployment not found or already deleted")
+    
+    # If deployment was in active_deployments cache, remove it
+    if deployment_id in active_deployments:
+        del active_deployments[deployment_id]
+    
+    return {"message": "Deployment deleted successfully"}
 
 
 @router.websocket("/deployments/{deployment_id}/logs")

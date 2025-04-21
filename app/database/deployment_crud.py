@@ -161,11 +161,31 @@ def add_deployment_log(db: Session, deployment_id: str, log_message: str) -> Opt
         logger.error(f"Deployment {deployment_id} not found")
         return None
     
-    current_logs = deployment.logs or []
+    # Add log message
     timestamp = datetime.now().isoformat()
     log_entry = f"[{timestamp}] {log_message}"
-    deployment.logs = current_logs + [log_entry]
+    
+    if isinstance(deployment.logs, list):
+        deployment.logs.append(log_entry)
+    else:
+        deployment.logs = [log_entry]
     
     db.commit()
     db.refresh(deployment)
-    return deployment 
+    return deployment
+
+
+def delete_deployment(db: Session, deployment_id: str, user_id: str) -> bool:
+    """Delete a deployment record
+    
+    This permanently removes a deployment record from the database.
+    """
+    result = db.query(DeploymentDB).filter(
+        and_(
+            DeploymentDB.id == deployment_id,
+            DeploymentDB.user_id == user_id
+        )
+    ).delete()
+    db.commit()
+    logger.info(f"Deleted deployment {deployment_id}")
+    return result > 0 
