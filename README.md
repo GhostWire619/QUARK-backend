@@ -114,6 +114,28 @@ The environment variables will be:
 2. Written to a `.env` file in the repository root
 3. Securely stored and managed per deployment
 
+## WebSocket Architecture
+
+QUARK uses a direct WebSocket implementation that bypasses the standard authentication middleware to ensure reliable connections:
+
+### Key Implementation Details
+
+- WebSocket endpoints are mounted directly on the main FastAPI app (not through routers)
+- Path structure follows `/ws/logs/{log_id}` pattern for consistency
+- Special aggregate channel `/ws/logs/all` provides all log events in a single stream
+- Optional token-based authentication via query parameter (`?token=your_github_token`)
+- WebSocket connections are managed by the LogConnectionManager class
+- Middleware automatically detects and exempts WebSocket routes from authentication middleware
+
+### Data Broadcast System
+
+- Log entries are automatically broadcast to multiple channels:
+  - Path-specific channel (based on the API endpoint)
+  - `all_logs` channel for all log entries
+  - Legacy `all` channel for backward compatibility
+- Each channel can have multiple connected clients
+- Dead connections are automatically cleaned up
+
 ### Real-Time Monitoring
 
 #### WebSocket Endpoints
@@ -132,8 +154,12 @@ ws.onmessage = (event) => {
 };
 ```
 
-2. API Request Logs:
+2. Individual Logs Stream:
 ```javascript
+// Authenticated version
+const ws = new WebSocket(`ws://localhost:8000/ws/logs/${logId}?token=${yourToken}`);
+
+// Or without authentication
 const ws = new WebSocket(`ws://localhost:8000/ws/logs/${logId}`);
 
 ws.onmessage = (event) => {
@@ -141,6 +167,22 @@ ws.onmessage = (event) => {
     console.log('API Log:', data);
 };
 ```
+
+3. All Logs Stream:
+```javascript
+// Authenticated version
+const ws = new WebSocket(`ws://localhost:8000/ws/logs/all?token=${yourToken}`);
+
+// Or without authentication
+const ws = new WebSocket(`ws://localhost:8000/ws/logs/all`);
+
+ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    console.log('API Log:', data);
+};
+```
+
+> Note: WebSocket endpoints support optional authentication via a token query parameter. Authenticated connections may receive more detailed log information depending on the user's permissions.
 
 #### REST API Endpoints
 
@@ -182,7 +224,9 @@ QUARK-backend/
 │   │   └── webhooks.py # GitHub webhook handling
 │   ├── schemas/        # Pydantic models and schemas
 │   ├── utils/          # Utility functions and middleware
+│   │   └── middleware.py # Contains RequestLoggingMiddleware with WebSocket bypass
 │   └── websockets/     # WebSocket managers and handlers
+│       └── logs.py     # LogConnectionManager for real-time log streaming
 ├── logs/              # Application logs
 ├── tests/             # Test files
 ├── .env              # Environment variables
@@ -234,6 +278,10 @@ uvicorn main:app --reload
 - All sensitive data is stored securely using environment variables
 - Webhook signatures are verified using HMAC
 - OAuth2 with JWT for authentication
+- WebSocket endpoints support optional token-based authentication
+- RequestLoggingMiddleware intelligently bypasses WebSocket connections
+- WebSocket endpoints are mounted directly on the main app for security isolation
+- Path-based pattern matching for WebSocket routes (`/ws/*` or `*/ws/*`)
 - Rate limiting on sensitive endpoints
 - Input validation using Pydantic models
 - SQL injection prevention with SQLAlchemy

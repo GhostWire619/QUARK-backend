@@ -145,9 +145,12 @@ class RequestLogDB(Base):
     def broadcast_log(self):
         """Broadcast the log entry to connected WebSocket clients"""
         log_dict = self.to_dict()
-        asyncio.create_task(log_manager.broadcast_log("all", log_dict))
-        # Also broadcast to specific endpoints
+        # Broadcast to the "all_logs" channel for clients wanting all logs
+        asyncio.create_task(log_manager.broadcast_log("all_logs", log_dict))
+        # Also broadcast to path-specific channels
         asyncio.create_task(log_manager.broadcast_log(self.path, log_dict))
+        # Keep compatibility with "all" channel
+        asyncio.create_task(log_manager.broadcast_log("all", log_dict))
 
 
 # Deployment Models

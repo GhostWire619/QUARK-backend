@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 import logging
 from app.websockets.logs import log_manager
@@ -43,20 +43,5 @@ async def get_request_logs(
     
     return result
 
-@router.websocket("/ws/logs/{log_id}")
-async def websocket_logs(websocket: WebSocket, log_id: str):
-    try:
-        await log_manager.connect(websocket, log_id)
-        
-        while True:
-            try:
-                # Keep the connection alive and wait for client messages
-                data = await websocket.receive_text()
-                # You can handle client messages here if needed
-            except WebSocketDisconnect:
-                log_manager.disconnect(websocket, log_id)
-                break
-            
-    except Exception as e:
-        log_manager.disconnect(websocket, log_id)
-        raise 
+# The WebSocket endpoint has been moved to main.py to bypass the authentication middleware
+# and is now accessible at /ws/logs/{log_id} and /ws/logs/all 

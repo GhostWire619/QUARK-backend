@@ -1,5 +1,5 @@
 import logging
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
 from fastapi.openapi.utils import get_openapi
@@ -7,13 +7,14 @@ import uvicorn
 
 
 from app.settings import settings
-from app.routes.auth import router as auth_router
+from app.routes.auth import router as auth_router, verify_token
 from app.routes.webhooks import router as webhooks_router
 from app.routes.user import router as user_router
 from app.routes.logs import router as logs_router
 from app.routes.deployments import router as deployments_router
 from app.database.database import init_db
 from app.utils.middleware import RequestLoggingMiddleware
+from app.websockets.logs import log_manager
 
 # Configure logging
 logging.basicConfig(
@@ -153,6 +154,76 @@ app.include_router(webhooks_router, prefix="/api", tags=["webhooks"])
 app.include_router(logs_router, prefix="/logs", tags=["logs"])
 app.include_router(deployments_router, prefix="/deploy", tags=["deploy"])
 
+# WebSocket endpoints directly on the app (bypassing router auth middleware)
+@app.websocket("/ws/logs/{log_id}")
+async def websocket_logs(websocket: WebSocket, log_id: str, token: str = None):
+    """
+    WebSocket endpoint for real-time log updates.
+    This endpoint is mounted directly on the app to bypass authentication middleware.
+    
+    Authentication is handled via a token query parameter.
+    """
+    try:
+        # Verify token if provided
+        if token:
+            user = verify_token(token)
+            if not user:
+                await websocket.close(code=4001, reason="Unauthorized")
+                return
+        
+        await log_manager.connect(websocket, log_id)
+        
+        while True:
+            try:
+                # Keep the connection alive and wait for client messages
+                data = await websocket.receive_text()
+                # You can handle client messages here if needed
+            except WebSocketDisconnect:
+                log_manager.disconnect(websocket, log_id)
+                break
+            
+    except Exception as e:
+        try:
+            log_manager.disconnect(websocket, log_id)
+        except:
+            pass
+        raise
+
+@app.websocket("/ws/logs/all")
+async def websocket_all_logs(websocket: WebSocket, token: str = None):
+    """
+    WebSocket endpoint for all logs stream.
+    This endpoint is mounted directly on the app to bypass authentication middleware.
+    
+    Authentication is handled via a token query parameter.
+    """
+    try:
+        # Verify token if provided
+        if token:
+            user = verify_token(token)
+            if not user:
+                await websocket.close(code=4001, reason="Unauthorized")
+                return
+        
+        # Use a special channel for broadcasting all logs
+        log_id = "all_logs"
+        await log_manager.connect(websocket, log_id)
+        
+        while True:
+            try:
+                # Keep the connection alive and wait for client messages
+                data = await websocket.receive_text()
+                # You can handle client messages here if needed
+            except WebSocketDisconnect:
+                log_manager.disconnect(websocket, log_id)
+                break
+            
+    except Exception as e:
+        try:
+            log_manager.disconnect(websocket, log_id)
+        except:
+            pass
+        raise
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, ssl_certfile=None, ssl_keyfile=None)
