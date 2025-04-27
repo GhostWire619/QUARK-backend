@@ -196,15 +196,31 @@ def execute_deployment(deployment_id: str, callback: Optional[Callable] = None):
                 update_deployment_status(db, deployment_id, DeploymentStatus.COMPLETED)
                 active_deployments[deployment_id]["status"] = DeploymentStatus.COMPLETED.value
                 
+            except Exception as e:
+                # This block handles errors *during* the deployment command execution (e.g., script not found, command fails)
+                error_message = str(e)
+                logger.error(f"Deployment {deployment_id} failed during execution: {error_message}")
+                # Ensure the final error log is added before updating status
+                add_deployment_log(db, deployment_id, f"\033[0;31mDeployment failed: {error_message}\033[0m")
+                db.commit() # Commit the log immediately
+                
+                update_deployment_status(db, deployment_id, DeploymentStatus.FAILED, 
+                                       error_message=error_message)
+                active_deployments[deployment_id]["status"] = DeploymentStatus.FAILED.value
+            
             finally:
-                # Clean up deployment directory
+                # Clean up deployment directory regardless of success or failure inside the inner try
                 add_deployment_log(db, deployment_id, "Cleaning up deployment directory")
                 cleanup_deployment_directory(deploy_dir)
-        
+
         except Exception as e:
+            # This outer block handles errors *before* the deploy command runs (e.g., cloning fails, config not found)
             error_message = str(e)
-            logger.error(f"Deployment {deployment_id} failed: {error_message}")
-            add_deployment_log(db, deployment_id, f"Deployment failed: {error_message}")
+            logger.error(f"Deployment {deployment_id} failed during setup: {error_message}")
+            # Ensure the final error log is added before updating status
+            add_deployment_log(db, deployment_id, f"\033[0;31mDeployment setup failed: {error_message}\033[0m")
+            db.commit() # Commit the log immediately
+            
             update_deployment_status(db, deployment_id, DeploymentStatus.FAILED, 
                                    error_message=error_message)
             active_deployments[deployment_id]["status"] = DeploymentStatus.FAILED.value
@@ -214,13 +230,22 @@ def execute_deployment(deployment_id: str, callback: Optional[Callable] = None):
             callback(deployment_id)
         
     except Exception as e:
-        logger.error(f"Error in deployment execution: {str(e)}")
-        update_deployment_status(db, deployment_id, DeploymentStatus.FAILED, 
+        # This handles errors even before the main try block (e.g., initial status update fails)
+        logger.error(f"Critical error in deployment execution {deployment_id}: {str(e)}")
+        # We might not have a valid deployment record here, so log cautiously
+        try:
+             if deployment_id and db:
+                 update_deployment_status(db, deployment_id, DeploymentStatus.FAILED, 
                                error_message=f"Internal error: {str(e)}")
-        active_deployments[deployment_id]["status"] = DeploymentStatus.FAILED.value
+                 if deployment_id in active_deployments:
+                     active_deployments[deployment_id]["status"] = DeploymentStatus.FAILED.value
+        except Exception as final_err:
+             logger.error(f"Failed to even update status for deployment {deployment_id} after critical error: {final_err}")
+
     finally:
         # Close the database session
-        db.close()
+        if db:
+            db.close()
         
         # Remove from active deployments after some time
         def cleanup_active_deployment():

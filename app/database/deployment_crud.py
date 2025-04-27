@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
+from sqlalchemy.orm.attributes import flag_modified
 from datetime import datetime
 import uuid
 import logging
@@ -165,10 +166,13 @@ def add_deployment_log(db: Session, deployment_id: str, log_message: str) -> Opt
     timestamp = datetime.now().isoformat()
     log_entry = f"[{timestamp}] {log_message}"
     
-    if isinstance(deployment.logs, list):
-        deployment.logs.append(log_entry)
-    else:
-        deployment.logs = [log_entry]
+    # Ensure deployment.logs is treated as a mutable list
+    current_logs = list(deployment.logs) if deployment.logs else []
+    current_logs.append(log_entry)
+    deployment.logs = current_logs
+    
+    # Mark the 'logs' field as modified for SQLAlchemy's change detection
+    flag_modified(deployment, "logs")
     
     db.commit()
     db.refresh(deployment)
