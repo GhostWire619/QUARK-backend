@@ -53,20 +53,26 @@ def run_command(command: str, cwd: str, env: Dict[str, str], deployment_id: Opti
     stdout_lines = []
     stderr_lines = []
     
-    def read_stream(stream, lines, is_error=False):
+    def read_stream(stream, lines, stream_name, is_error=False):
         for line in iter(stream.readline, ''):
+            stripped_line = line.strip()
             lines.append(line)
             if deployment_id and db:
-                # Add log with appropriate color coding
+                # Add log with prefix and appropriate color coding
+                log_prefix = f"[{stream_name}]"
                 if is_error:
-                    log_line = f"\033[0;31m{line.strip()}\033[0m"  # Red for errors
+                    # Keep original stderr coloring if present, otherwise make it red
+                    if "\033[" in stripped_line: # Check if already colored
+                         log_line = f"{log_prefix} {stripped_line}"
+                    else:
+                         log_line = f"{log_prefix} \033[0;31m{stripped_line}\033[0m" # Red for errors
                 else:
-                    log_line = line.strip()
+                    log_line = f"{log_prefix} {stripped_line}"
                 add_deployment_log(db, deployment_id, log_line)
     
     # Create threads to read stdout and stderr
-    stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines))
-    stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines, True))
+    stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines, "stdout"))
+    stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines, "stderr", True))
     
     # Start threads
     stdout_thread.start()
