@@ -291,7 +291,7 @@ async def github_login(user_id: Optional[str] = None):
     return {"login_url": github_auth_url}
 
 @router.get(
-    "/github/callback",
+    "/callback",
     summary="GitHub OAuth Callback",
     responses={
         302: {
