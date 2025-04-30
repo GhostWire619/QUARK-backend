@@ -11,7 +11,7 @@ from app.database.webhook_crud import (
     add_or_update_registered_webhook
 )
 from app.settings import settings
-from fastapi.security import OAuth2PasswordBearer
+from app.routes.auth import get_user_from_token
 from app.utils.webhook_utils import (
     create_webhook,
     check_existing_webhook)
@@ -19,7 +19,7 @@ from app.deployment.engine import process_webhook_event
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+
     
 @router.get(
     "/repos/{owner}/{repo}/commits",
@@ -48,7 +48,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 async def get_repo_commits(
     owner: str,
     repo: str,
-    token: str = Depends(oauth2_scheme)
+    current_user: Dict[str, Any] = Depends(get_user_from_token)
 ):
     """
     Retrieves detailed commit information for a specific repository.
@@ -61,16 +61,18 @@ async def get_repo_commits(
     Args:
         owner (str): Repository owner username
         repo (str): Repository name
-        token (str): GitHub access token
+        current_user (Dict): Authenticated user information from token
     
     Returns:
         List[Dict]: List of detailed commit information
     """
-    if not token:
+    if not current_user or not current_user.get("github_token"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated"
+            detail="Not authenticated or GitHub token missing"
         )
+    
+    token = current_user["github_token"]
     
     try:
         async with httpx.AsyncClient() as client:
@@ -127,7 +129,7 @@ async def setup_webhook(
     background_tasks: BackgroundTasks,
     owner: str,
     repo: str,
-    token: str = Depends(oauth2_scheme),
+    current_user: Dict[str, Any] = Depends(get_user_from_token),
     db_session: Session = Depends(get_db)
 ):
     """
@@ -146,18 +148,19 @@ async def setup_webhook(
     Args:
         owner (str): Repository owner username
         repo (str): Repository name
-        token (str): GitHub access token
+        current_user (Dict): Authenticated user information from token
         db_session (Session): Database session
     
     Returns:
         Dict[str, str]: Status of webhook setup operation
     """
-    if not token:
+    if not current_user or not current_user.get("github_token"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated"
+            detail="Not authenticated or GitHub token missing"
         )
     
+    token = current_user["github_token"]
     repo_full_name = f"{owner}/{repo}"
     logger.info(f"Setting up webhook for {repo_full_name} to {settings.WEBHOOK_URL}")
     

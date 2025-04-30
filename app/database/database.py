@@ -47,6 +47,12 @@ class UserDB(Base):
     email = Column(String, unique=True, nullable=False, index=True)
     password_hash = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=get_utc_now)
+    
+    # GitHub integration fields
+    github_id = Column(String, unique=True, nullable=True)
+    github_username = Column(String, nullable=True)
+    github_access_token = Column(String, nullable=True)
+    github_avatar_url = Column(String, nullable=True)
 
     # Relationship to webhooks
     webhooks = relationship('RegisteredWebhookDB', back_populates='user', cascade='all, delete-orphan')

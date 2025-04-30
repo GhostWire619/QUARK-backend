@@ -7,13 +7,13 @@ import uvicorn
 
 
 from app.settings import settings
-from app.routes.auth import router as auth_router, verify_token
+from app.routes.auth import router as auth_router, verify_token, get_github_user
 from app.routes.webhooks import router as webhooks_router
 from app.routes.user import router as user_router
 from app.routes.logs import router as logs_router
 from app.routes.deployments import router as deployments_router
 from app.database.database import init_db
-from app.utils.middleware import RequestLoggingMiddleware
+from app.utils.middleware import RequestLoggingMiddleware, authenticate_request
 from app.websockets.logs import log_manager
 
 # Configure logging
@@ -28,46 +28,67 @@ security_bearer = HTTPBearer(auto_error=False)
 
 # Create FastAPI app
 app = FastAPI(
-    title="GitHub Webhook Manager",
+    title="QUARK - GitHub Webhook & Deployment Manager",
     description="""
-    A comprehensive GitHub webhook management system that allows you to:
+    # QUARK: Deployment automation service with GitHub integration
+    
+    ## Authentication Options
+    
+    QUARK supports two authentication methods:
+    
+    1. **Email/Password Authentication**:
+       - Register: `POST /auth/register`
+       - Login: `POST /auth/login`
+       - Returns a JWT token to use for subsequent requests
+    
+    2. **GitHub OAuth Authentication**:
+       - Start OAuth flow: `GET /auth/github/login`
+       - System handles callback: `GET /auth/github/callback`
+       - Returns a JWT token with GitHub integration
+    
+    3. **Account Linking**:
+       - Link GitHub to existing account: `GET /auth/link-github`
+       - This allows accessing GitHub APIs with your regular account
+    
+    ## How to Authenticate in Swagger UI
+    
+    1. Click the 🔒 **Authorize** button at the top-right
+    2. Enter your JWT token in the "Value" field (without "Bearer" prefix)
+    3. Click "Authorize" and close the dialog
+    4. All API requests will now include your token
     
     ## Key Features
-    * 🔐 Authenticate with GitHub using OAuth
-    * 🔄 Automatically set up and manage webhooks for repositories
+    
+    * 🔐 User authentication (Email/Password and GitHub OAuth)
+    * 🔄 Automated webhook management for GitHub repositories
     * 📊 Track and store webhook events
-    * 👤 Manage user profiles and repository access
+    * 👤 User profile and repository management
     * 🚀 Automated deployments from GitHub repositories
-    
-    ## Authentication
-    The API uses GitHub OAuth for authentication. All authenticated endpoints require a valid GitHub access token.
-    
-    To authenticate in Swagger UI:
-    1. Click the "Authorize" button at the top-right
-    2. Enter your GitHub token in the Value field (without "Bearer" prefix)
-    3. Click "Authorize" and close the dialog
-    
-    ## Webhook Management
-    - Automatically create and configure webhooks for repositories
-    - Store and track webhook events
-    - View commit history and repository information
-    
-    ## User Management
-    - View and manage user profiles
-    - Access repository listings
-    - Track user-specific webhook configurations
-    
-    ## Deployment Platform
-    - Configure automated deployments for repositories
-    - Define build, deploy, and post-deploy commands
-    - View deployment history and logs
-    - Support for multiple environments (dev, test, staging, prod)
+    * 📡 Real-time logs via WebSockets
     
     ## Getting Started
-    1. Start by authenticating through the `/auth/login` endpoint
-    2. Use the received token for all authenticated requests
-    3. Set up webhooks for your repositories using `/api/repos/{owner}/{repo}/setup-webhook`
-    4. Configure deployments using `/deploy/configs`
+    
+    1. Start by registering a new account or logging in with GitHub
+    2. Link your GitHub account if using email/password authentication
+    3. Set up webhooks for your repositories
+    4. Configure deployment settings for your projects
+    
+    ## GitHub-Dependent Features
+    
+    Some endpoints require GitHub integration. These will work if:
+    - You authenticated using GitHub OAuth, or
+    - You linked a GitHub account to your email/password account
+    
+    ## API Token Management
+    
+    Your JWT token is valid for 24 hours. To check your current user info:
+    - Visit `GET /auth/me` to see your profile and connection status
+    
+    ## WebSocket Features
+    
+    The application supports real-time communication via WebSockets:
+    - `/ws/logs/{log_id}`: Subscribe to specific log streams
+    - `/ws/logs/all`: Subscribe to all logs
     """,
     version="1.0.0",
     docs_url="/docs",
@@ -75,11 +96,11 @@ app = FastAPI(
     openapi_tags=[
         {
             "name": "auth",
-            "description": "Authentication operations with GitHub OAuth"
+            "description": "Authentication operations: register, login, GitHub OAuth, and account management"
         },
         {
             "name": "webhooks",
-            "description": "Webhook management and event handling"
+            "description": "GitHub webhook management and event handling (requires GitHub integration)"
         },
         {
             "name": "user",
@@ -91,7 +112,7 @@ app = FastAPI(
         },
         {
             "name": "deploy",
-            "description": "Deployment configuration and execution"
+            "description": "Deployment configuration and execution (requires GitHub integration)"
         }
     ]
 )
@@ -99,9 +120,21 @@ app = FastAPI(
 # Add security schemes to OpenAPI
 app.swagger_ui_parameters = {
     "persistAuthorization": True,
+    "defaultModelsExpandDepth": 3,
+    "deepLinking": True,
+    "displayRequestDuration": True,
+    "docExpansion": "list",
+    "showExtensions": True,
+    "tryItOutEnabled": True,
+    "supportedSubmitMethods": ["get", "put", "post", "delete", "options", "head", "patch", "trace"],
+    "oauth2RedirectUrl": f"{settings.FRONTEND_URL}/oauth2-redirect.html",
+    "filter": True,
+    # Add these additional parameters for better token persistence
+    "withCredentials": True,
+    "persistAuthorization": True
 }
 
-# Define HTTP Bearer scheme
+# Define HTTP Bearer scheme with better documentation
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
@@ -120,12 +153,46 @@ def custom_openapi():
     openapi_schema["components"]["securitySchemes"] = {
         "HTTPBearer": {
             "type": "http",
-            "scheme": "bearer"
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": """
+                JWT token obtained from `/auth/login`, `/auth/register`, or GitHub OAuth. 
+                Enter the token value without the 'Bearer' prefix.
+                
+                Example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0
+            """
         }
     }
     
-    # Apply security globally
-    openapi_schema["security"] = [{"HTTPBearer": []}]
+    # Default security requirement (most routes need authentication)
+    security_requirement = [{"HTTPBearer": []}]
+    
+    # Add global security requirement (this applies to all endpoints by default)
+    openapi_schema["security"] = security_requirement
+    
+    # Process each path and operation to apply correct security requirements
+    for path, path_item in openapi_schema["paths"].items():
+        # Skip security for auth endpoints that don't need authentication
+        if (path.startswith("/auth/login") or 
+            path.startswith("/auth/register") or 
+            path.startswith("/auth/github/login") or 
+            path.startswith("/auth/github/callback") or
+            path.startswith("/docs") or 
+            path.startswith("/redoc") or
+            path.startswith("/openapi.json")):
+            
+            for method in path_item:
+                if method.lower() in ["get", "post", "put", "delete", "patch"]:
+                    # Empty array means no security requirements
+                    path_item[method]["security"] = []
+        
+        # For all other endpoints, ensure they have the security requirement
+        else:
+            for method in path_item:
+                if method.lower() in ["get", "post", "put", "delete", "patch"]:
+                    # Only add if not already present
+                    if "security" not in path_item[method]:
+                        path_item[method]["security"] = security_requirement
     
     app.openapi_schema = openapi_schema
     return app.openapi_schema
@@ -144,7 +211,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-#initialize db
+# Initialize db
 init_db()
 
 # Include routers with tags
@@ -205,9 +272,7 @@ async def websocket_all_logs(websocket: WebSocket, token: str = None):
                 await websocket.close(code=4001, reason="Unauthorized")
                 return
         
-        # Use a special channel for broadcasting all logs
-        log_id = "all_logs"
-        await log_manager.connect(websocket, log_id)
+        await log_manager.connect(websocket, "all_logs")
         
         while True:
             try:
@@ -215,12 +280,12 @@ async def websocket_all_logs(websocket: WebSocket, token: str = None):
                 data = await websocket.receive_text()
                 # You can handle client messages here if needed
             except WebSocketDisconnect:
-                log_manager.disconnect(websocket, log_id)
+                log_manager.disconnect(websocket, "all_logs")
                 break
             
     except Exception as e:
         try:
-            log_manager.disconnect(websocket, log_id)
+            log_manager.disconnect(websocket, "all_logs")
         except:
             pass
         raise

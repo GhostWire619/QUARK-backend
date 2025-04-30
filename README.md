@@ -4,7 +4,10 @@ A FastAPI-based deployment automation service that handles GitHub webhooks and m
 
 ## Features
 
-- 🔐 GitHub OAuth authentication
+- 🔐 Multiple authentication methods:
+  - Email/password registration and login
+  - GitHub OAuth integration
+  - Account linking between GitHub and regular accounts
 - 🪝 Automated webhook management
 - 📦 Deployment automation
 - 🔄 Zero-downtime deployments
@@ -18,6 +21,78 @@ A FastAPI-based deployment automation service that handles GitHub webhooks and m
 - 🔒 Secure environment variable handling
 - 🎯 Branch-specific deployment configurations
 - 🔍 Detailed deployment history
+
+## Authentication System
+
+QUARK supports multiple authentication methods that can work together seamlessly:
+
+### Email/Password Authentication
+
+Regular authentication using email and password:
+
+```bash
+# Register a new user
+curl -X 'POST' \
+  'http://localhost:8000/auth/register' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "username": "your_username",
+    "email": "your_email@example.com",
+    "password": "your_secure_password"
+  }'
+
+# Login with credentials
+curl -X 'POST' \
+  'http://localhost:8000/auth/login' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "email": "your_email@example.com",
+    "password": "your_secure_password"
+  }'
+```
+
+Both methods return a JWT token to use for subsequent requests:
+
+```json
+{
+  "access_token": "your.jwt.token",
+  "token_type": "bearer",
+  "user": {
+    "id": "user_id",
+    "username": "your_username",
+    "email": "your_email@example.com",
+    "github_connected": false,
+    "auth_type": "password"
+  }
+}
+```
+
+### GitHub OAuth Authentication
+
+For seamless GitHub integration:
+
+1. Redirect user to GitHub login: `GET /auth/github/login`
+2. GitHub redirects back to: `GET /auth/github/callback`
+3. System provides a JWT token linked to GitHub account
+
+### Account Linking
+
+Users with regular accounts can link to GitHub:
+
+1. Authenticate with email/password
+2. Visit: `GET /auth/link-github`
+3. Complete GitHub OAuth flow
+4. Account is now linked and can access GitHub resources
+
+### Authentication Flow
+
+1. Endpoints that require GitHub access will work automatically with:
+   - GitHub OAuth authenticated users
+   - Regular users with linked GitHub accounts
+2. The system uses a middleware that:
+   - Detects authentication type (JWT or GitHub)
+   - Adds GitHub tokens where needed
+   - Ensures proper access controls
 
 ## Getting Started
 
@@ -52,12 +127,13 @@ pip install -r requirements.txt
 ```env
 CLIENT_ID=your_github_oauth_client_id
 CLIENT_SECRET=your_github_oauth_client_secret
-REDIRECT_URI=http://localhost:8000/auth/callback
+REDIRECT_URI=http://localhost:8000/auth/github/callback
 FRONTEND_URL=http://localhost:5173
 WEBHOOK_URL=http://your-webhook-url
 WEBHOOK_SECRET=your-webhook-secret
 DATABASE_URL=sqlite:///./app.db
 PASSWORD=your_default_password
+JWT_SECRET=your_secure_jwt_secret
 ```
 
 5. Run the application:
@@ -80,6 +156,24 @@ docker run -d \
   --env-file .env \
   quark-backend
 ```
+
+## Using the API
+
+### Authentication
+
+1. Register or login to get your JWT token
+2. Include the token in all requests:
+   ```bash
+   curl -H "Authorization: Bearer your.jwt.token" http://localhost:8000/endpoint
+   ```
+
+### Testing in Swagger UI
+
+1. Visit http://localhost:8000/docs
+2. Click the "Authorize" button at the top right
+3. Enter your JWT token (without "Bearer" prefix)
+4. Click "Authorize" then "Close"
+5. All API requests in Swagger UI will now include your token
 
 ## Deployment Configuration
 
@@ -123,7 +217,7 @@ QUARK uses a direct WebSocket implementation that bypasses the standard authenti
 - WebSocket endpoints are mounted directly on the main FastAPI app (not through routers)
 - Path structure follows `/ws/logs/{log_id}` pattern for consistency
 - Special aggregate channel `/ws/logs/all` provides all log events in a single stream
-- Optional token-based authentication via query parameter (`?token=your_github_token`)
+- Optional token-based authentication via query parameter (`?token=your_jwt_token`)
 - WebSocket connections are managed by the LogConnectionManager class
 - Middleware automatically detects and exempts WebSocket routes from authentication middleware
 
@@ -250,8 +344,6 @@ pytest
 uvicorn main:app --reload
 ```
 
-2. Access the API at `http://localhost:8000`
-
 ### Environment Variables
 
 | Variable | Description | Required | Default |
@@ -264,6 +356,7 @@ uvicorn main:app --reload
 | WEBHOOK_SECRET | GitHub webhook secret | Yes | - |
 | DATABASE_URL | Database connection string | No | sqlite:///./app.db |
 | PASSWORD | Default password | Yes | - |
+| JWT_SECRET | Secure JWT secret | Yes | - |
 
 ## Contributing
 

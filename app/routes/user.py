@@ -46,7 +46,7 @@ async def get_user_profile(
     Retrieves the authenticated user's GitHub profile and creates/updates local user record.
     
     This endpoint:
-    1. Fetches user profile from GitHub
+    1. Fetches user profile from GitHub using the stored GitHub token
     2. Creates or updates local user record
     3. Returns complete GitHub profile information
     
@@ -56,7 +56,7 @@ async def get_user_profile(
     - System-generated password
     
     Args:
-        current_user (Dict): Authenticated user information
+        current_user (Dict): Authenticated user information including 'github_token'
         db_session (Session): Database session
     
     Returns:
@@ -67,42 +67,60 @@ async def get_user_profile(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated"
         )
+        
+    # Check if GitHub is connected and token is available
+    if not current_user.get("github_connected") or not current_user.get("github_token"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GitHub account not linked or token unavailable. Please link your GitHub account."
+        )
+
+    github_api_token = current_user.get("github_token")
     
     try:
-        # Create or update local user record
-        username = current_user.get("username")
-        email = current_user.get("email")
+        # Create or update local user record (this part might need review - does it always need to run?)
+        # username = current_user.get("username")
+        # email = current_user.get("email")
+        # user_data = UserCreate(username=username, email=email, password=settings.PASSWORD)
+        # new_user = create_user(db_session, user_data)
+        # if new_user is None:
+        #     logger.info(f"User {username} already exists")
+        # else:
+        #     logger.info(f"New user {new_user.username} has been created")
         
-        user_data = UserCreate(username=username, email=email, password=settings.PASSWORD)
-        new_user = create_user(db_session, user_data)
-        
-        if new_user is None:
-            logger.info(f"User {username} already exists")
-        else:
-            logger.info(f"New user {new_user.username} has been created")
-        
-        # Get full GitHub profile
-        # We need to make another API call to get additional profile information
+        # Get full GitHub profile using the stored GitHub token
         async with httpx.AsyncClient() as client:
+            logger.debug(f"Making GitHub API request to /user with token: {github_api_token[:4]}...")
             response = await client.get(
                 "https://api.github.com/user",
-                headers={"Authorization": f"Bearer {current_user.get('token', '')}"}
+                headers={"Authorization": f"Bearer {github_api_token}"}
             )
             
             if response.status_code == 200:
                 github_user = response.json()
-                # Ensure the email is included in the response
-                if "email" not in github_user or not github_user["email"]:
-                    github_user["email"] = email
+                # Ensure the email is included if missing from GitHub profile but present in our record
+                if ("email" not in github_user or not github_user["email"]) and current_user.get("email"):
+                    github_user["email"] = current_user.get("email")
+                logger.info(f"Successfully fetched GitHub profile for {github_user.get('login')}")
                 return github_user
             else:
-                # If we can't get the full profile, return what we have
-                logger.warning(f"Couldn't get full GitHub profile: {response.status_code}")
-                return current_user
+                # If we can't get the full profile, raise an error
+                error_detail = f"Failed to fetch GitHub profile: {response.status_code} - {response.text}"
+                logger.warning(error_detail)
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY, # 502 suggests an issue talking to the upstream service (GitHub)
+                    detail=error_detail
+                )
     
+    except httpx.RequestError as exc:
+        error_detail = f"Error communicating with GitHub API: {exc}"
+        logger.error(error_detail)
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=error_detail)
     except Exception as e:
-        logger.error(f"Error processing user profile: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing user profile: {str(e)}")
+        # Catch-all for other unexpected errors
+        error_detail = f"Error processing user profile: {str(e)}"
+        logger.error(error_detail, exc_info=True) # Log traceback for unexpected errors
+        raise HTTPException(status_code=500, detail=error_detail)
     
 @router.get(
     "/repos",
@@ -125,17 +143,19 @@ async def get_user_profile(
             }
         },
         401: {"description": "Not authenticated"},
+        400: {"description": "GitHub account not linked or token unavailable"},
         500: {"description": "Server error"}
     }
 )
 async def get_user_repos(current_user: Dict = Depends(get_current_user)):
     """
-    Retrieves the authenticated user's GitHub repositories.
+    Retrieves the authenticated user's GitHub repositories using their stored token.
     
     This endpoint:
-    1. Fetches up to 100 most recently updated repositories
-    2. Includes both public and private repositories
-    3. Returns detailed repository information
+    1. Checks if the user has a linked GitHub account and token.
+    2. Fetches up to 100 most recently updated repositories from GitHub.
+    3. Includes both public and private repositories.
+    4. Returns detailed repository information.
     
     The repositories are sorted by last update time and include:
     - Repository metadata
@@ -144,7 +164,7 @@ async def get_user_repos(current_user: Dict = Depends(get_current_user)):
     - Description
     
     Args:
-        current_user (Dict): Authenticated user information
+        current_user (Dict): Authenticated user information including 'github_token'
     
     Returns:
         List[Dict[str, Any]]: List of repository information
@@ -154,12 +174,19 @@ async def get_user_repos(current_user: Dict = Depends(get_current_user)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated"
         )
+        
+    # Check if GitHub is connected and token is available
+    if not current_user.get("github_connected") or not current_user.get("github_token"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GitHub account not linked or token unavailable. Please link your GitHub account."
+        )
+        
+    github_api_token = current_user.get("github_token")
     
     try:
-        # We need to make another API call to get the repositories
-        # We'll use the token from the authentication
-        auth_header = f"Bearer {current_user.get('token', '')}"
-        logger.info(f"Getting repositories for user: {current_user.get('username')}")
+        auth_header = f"Bearer {github_api_token}"
+        logger.info(f"Getting repositories for user: {current_user.get('username')} using stored token.")
         
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -168,16 +195,21 @@ async def get_user_repos(current_user: Dict = Depends(get_current_user)):
             )
             
             if response.status_code == 200:
+                logger.info(f"Successfully fetched repositories for {current_user.get('username')}")
                 return response.json()
             else:
-                error_message = f"GitHub API error: {response.status_code}"
+                error_message = f"GitHub API error fetching repos: {response.status_code}"
                 logger.error(f"{error_message} - {response.text}")
                 raise HTTPException(
-                    status_code=response.status_code, 
-                    detail=f"{error_message}. Please check your GitHub token."
+                    status_code=status.HTTP_502_BAD_GATEWAY, 
+                    detail=f"{error_message}. Please check your GitHub token permissions or validity."
                 )
     
+    except httpx.RequestError as exc:
+        error_detail = f"Error communicating with GitHub API for repos: {exc}"
+        logger.error(error_detail)
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=error_detail)
     except Exception as e:
-        error_message = f"Error fetching repositories: {str(e)}"
-        logger.error(error_message)
-        raise HTTPException(status_code=500, detail=error_message)
+        error_detail = f"Error fetching repositories: {str(e)}"
+        logger.error(error_detail, exc_info=True)
+        raise HTTPException(status_code=500, detail=error_detail)
